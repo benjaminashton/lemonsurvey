@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String?   @unique
+  name          String?
+  passwordHash  String
+  role          UserRole  @default(ADMIN)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  surveys       Survey[]
+  participants  Participant[]
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  USER
+  RESPONDENT
+}
+
+model Survey {
+  id            String        @id @default(cuid())
+  title         String
+  slug          String        @unique
+  description   String?       @db.Text
+  welcomeText   String?       @db.Text
+  endText       String?       @db.Text
+  status        SurveyStatus  @default(DRAFT)
+  allowBack     Boolean       @default(true)
+  requireToken  Boolean       @default(false)
+
+  createdById   String
+  createdBy     User          @relation(fields: [createdById], references: [id])
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  expiresAt     DateTime?
+  views         Int           @default(0)
+
+  groups        QuestionGroup[]
+  participants  Participant[]
+  responses     SurveyResponse[]
+  routingRules  RoutingRule[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+enum SurveyStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+model QuestionGroup {
+  id            String    @id @default(cuid())
+  surveyId      String
+  survey        Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  title         String
+  description   String?   @db.Text
+  sortOrder     Int       @default(0)
+
+  relevance     Json?
+
+  questions     Question[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([surveyId, sortOrder])
+  @@index([surveyId])
+}
+
+model Question {
+  id            String        @id @default(cuid())
+  groupId       String
+  group         QuestionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  code          String
+  text          String        @db.Text
+  helpText      String?       @db.Text
+  type          QuestionType
+  isRequired    Boolean       @default(false)
+  sortOrder     Int           @default(0)
+
+  relevance     Json?
+  equation      String?
+  defaultValue  String?
+  validation    Json?
+
+  choices       QuestionChoice[]
+  answers       Answer[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([groupId, code])
+  @@index([groupId])
+  @@index([code])
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  DROPDOWN
+  TEXT_SHORT
+  TEXT_LONG
+  RATING
+  FILE_UPLOAD
+  EQUATION
+  PRESENTATION
+}
+
+model QuestionChoice {
+  id            String    @id @default(cuid())
+  questionId    String
+  question      Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  code          String
+  label         String
+  value         String
+  sortOrder     Int       @default(0)
+
+  attachedAsset Json?
+
+  @@unique([questionId, code])
+  @@index([questionId])
+}
+
+model Participant {
+  id            String             @id @default(cuid())
+  surveyId      String
+  survey        Survey             @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  email         String
+  firstName     String?
+  lastName      String?
+  
+  userId        String?
+  user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  token         String             @unique @default(cuid())
+  status        ParticipantStatus  @default(PENDING)
+
+  emailSentAt   DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  response      SurveyResponse?
+
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@unique([surveyId, email])
+  @@index([token])
+  @@index([surveyId])
+}
+
+enum ParticipantStatus {
+  PENDING
+  INVITED
+  STARTED
+  COMPLETED
+  EXPIRED
+}
+
+model SurveyResponse {
+  id              String      @id @default(cuid())
+  surveyId        String
+  survey          Survey      @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  participantId   String?     @unique
+  participant     Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  ipAddress       String?
+  userAgent       String?
+
+  submittedAt     DateTime    @default(now())
+  isComplete      Boolean     @default(false)
+
+  partialData     Json?
+  lastPage        Int         @default(0)
+
+  answers         Answer[]
+
+  @@index([surveyId])
+}
+
+model Answer {
+  id              String         @id @default(cuid())
+  responseId      String
+  response        SurveyResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  questionId      String
+  question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  textValue       String?        @db.Text
+  choiceValues    String[]
+  numericValue    Float?
+  fileUrl         String?
+
+  createdAt       DateTime       @default(now())
+
+  @@unique([responseId, questionId])
+  @@index([responseId])
+  @@index([questionId])
+}
+
+model RoutingRule {
+  id            String          @id @default(cuid())
+  surveyId      String
+  survey        Survey          @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  name          String
+  sortOrder     Int             @default(0)
+
+  condition     Json
+
+  actionType    RoutingAction   @default(EMAIL)
+
+  recipientEmail  String?
+  emailSubject    String?
+  emailBody       String?       @db.Text
+
+  webhookUrl      String?
+  webhookHeaders  Json?
+
+  isActive      Boolean         @default(true)
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([surveyId])
+}
+
+enum RoutingAction {
+  EMAIL
+  WEBHOOK
+}
+
+model PlatformSettings {
+  id          String   @id @default("global")
+  companyName String   @default("LemonSurvey")
+  brandColor        String   @default("#facc15")
+  logoUrl           String?
+  defaultLanguage   String   @default("fr")
+  timezone          String   @default("Europe/Paris")
+  defaultAllowBack  Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
